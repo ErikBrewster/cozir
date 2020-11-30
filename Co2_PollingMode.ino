@@ -1,4 +1,4 @@
-// https://www.airtest.com/support/datasheet/COZIRSerialInterface.pdf
+// http://www.co2meters.com/Documentation/Manuals/Manual-GSS-Sensors.pdf
 
 //    Command             Description               Example         Notes
 
@@ -9,80 +9,146 @@
 //    T\r\n               get temperature           T\r\n
 //    H\r\n               get humidity              H\r\n
 
-char buffer[8];
+const int bufferLength = 30;
+char buffer[bufferLength];
 byte bufferCount = 0;
 byte receiveCount = 0;
 float celsius;
 float humidity;
 int digitalCo2;
+const int commandDelay = 50;
+bool pollingEnabled = true;
 // timer vars
 unsigned long currentMillis;
 unsigned long oneSecond_PreviousMillis;
-const long oneSecondInterval = 1000;
+const long oneSecondInterval = 10000;
 
+void readData();
 
 void setup() {
-  Serial1.begin(9600); // here i am using an Arduino Mega2560 on Serial 1, if your using a Uno you can use software serial instead.
-  // Or just use the Main Serial below which i am using for data output, but if you do just use the main serial alone be care what you print when debugging else you may
-  // Send a cmd to the COZIR and calibrate it in the wrong situation i.e gas mode or whatever so please be careful.
+  Serial1.begin(9600);
   Serial.begin(115200);
+  delay(300);
+
+  Serial.println(F("=========================="));
   Serial.println(F("Starting system."));
+  Serial1.println("K 2"); // polling mode
+  delay(commandDelay);
+  readData();
+
+  oneSecond_PreviousMillis = millis() - oneSecondInterval;
 }
 
-void loop() {
-  currentMillis = millis();
-  if (currentMillis - oneSecond_PreviousMillis >= oneSecondInterval) { // one second timer
-    cozSerialData();
-    oneSecond_PreviousMillis = currentMillis;
-  }
-}
-
-void cozSerialData(void) {
-  Serial1.println(F("Z")); // request co2
-  delay(50);
-  Serial1.println(F("T")); // request celsius
-  delay(50);
-  Serial1.println(F("H")); // request R/H
+void readData(){
   bool foundValues = false;
+  for (byte i = 0; i < bufferLength; i++) { // clear the entire buffer array
+    buffer[i] = 0;
+  }
+        
   while (!foundValues) {
     char input = Serial1.read();
     if (input > 0) {
-      if (input != '\n' && input != 32 && bufferCount < 8) { // get responce for COZIR
+      if (input != '\n' && bufferCount < bufferLength) { // get responce for COZIR
         buffer[bufferCount] = input;
         bufferCount++;
+        //Serial.print(char(input));
       }
       else if (input == '\n') { // sort Serial data once we have recived the \n
-        bufferCount = 0;
-        //Serial.println(buffer);
-        for (byte i = 0; i < 7; i++) { // shuffle array back one position to get rid of the capital letter
-          buffer[i] = buffer[i + 1];
+        foundValues = true;
+        //Serial.print("found n: ");Serial.print(bufferCount);
+        buffer[bufferCount] = 0;
+
+        for (byte i = 0; i < bufferCount; i++) { // write what was in the buffer
+          //Serial.print(char(buffer[i]));
         }
-        receiveCount++;
-        if (receiveCount == 1) {
-          digitalCo2 = atoi(buffer);
-          Serial.print(F("\nDigital Co2 ppm: ")); Serial.println(digitalCo2);
-        }
-        else if (receiveCount == 2) {
-          celsius = atof(buffer);
-          if (celsius < 1000) {
-            celsius = 0.1 * celsius;
-          }
-          else {
-            celsius = 0.1 * (celsius - 1000);
-          }
-          Serial.print(F("Celsius: ")); Serial.println(celsius);
-        }
-        else if (receiveCount == 3) {
-          humidity = atof(buffer);
-          humidity = humidity * 0.1;
-          Serial.print(F("Humidity: ")); Serial.println(humidity);
-          receiveCount = 0;
-          foundValues = true;
-        }
-        for (byte i = 0; i < 8; i++) { // clear the entire buffer array
-          buffer[i] = 0;
-        }
+        //Serial.println(" :end");
+        foundValues = true;
+      }
+      else if (bufferCount >= bufferLength) {
+        Serial.println("overflow");
+        Serial.println(bufferCount);
+        foundValues = true; 
+      }
+      else{
+        Serial.println("unknown error");
+        Serial.println(char(input));
+        foundValues = true;
       }
     }
+    else{
+      Serial.print("input = 0");
+    }
+    //Serial.print("foundValue: "); Serial.println(foundValues);
+  }
+  //Serial.println("resetting bufferCount");
+  bufferCount = 0;
+  delay(commandDelay);
+  return;
+}
+
+float getIntFromReturn(char code){
+  int value = atoi(&buffer[3]);
+  Serial.println(value);
+  
+
+  return -1;
+}
+
+float getCo2(){
+  Serial1.println("Z"); // request co2
+  delay(commandDelay);
+  readData();
+  if (buffer[1] != 'Z'){
+    Serial.print("Z:"); // request co2
+    Serial.println(buffer);
+    pollingEnabled = false;
+  }
+  float co2 = atoi(&buffer[3]);
+  return co2;
+}
+
+float getTemp(){
+  Serial1.println("T"); // request temp
+  delay(commandDelay);
+  readData();
+  if (buffer[1] != 'T'){
+    Serial.print("T:"); // request temp
+    Serial.println(buffer);
+    pollingEnabled = false;
+  }
+
+  float temp = atoi(&buffer[5]) / 10.0;
+  temp = (temp * 9 / 5) + 32;
+
+  return temp;
+}
+
+
+float getHumidity(){
+  Serial1.println("H"); // request humidity
+  delay(commandDelay);
+  readData();
+  if (buffer[1] != 'H'){
+    Serial.print("H"); // request humidity
+    Serial.println(buffer);
+    pollingEnabled = false;
+  }
+  
+  float humidity = atoi(&buffer[3]) / 10.0;
+  return humidity;
+}
+
+
+void loop() {
+  currentMillis = millis();
+  if (currentMillis - oneSecond_PreviousMillis >= oneSecondInterval && pollingEnabled == true) { // one second timer
+    float co2 = getCo2();
+    float temp = getTemp();
+    float humidity = getHumidity();
+    Serial.print("CO2 "); Serial.print(co2);
+    Serial.print(" Temp "); Serial.print(temp);
+    Serial.print(" Humidity "); Serial.println(humidity);
+    
+    oneSecond_PreviousMillis = currentMillis;
   }
 }
