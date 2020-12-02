@@ -1,3 +1,4 @@
+// Developed from https://forum.arduino.cc/index.php?topic=91467.180
 // http://www.co2meters.com/Documentation/Manuals/Manual-GSS-Sensors.pdf
 
 //    Command             Description               Example         Notes
@@ -21,7 +22,7 @@ bool pollingEnabled = true;
 // timer vars
 unsigned long currentMillis;
 unsigned long oneSecond_PreviousMillis;
-const long oneSecondInterval = 10000;
+const long oneSecondInterval = 60000;
 
 void readData();
 
@@ -84,14 +85,6 @@ void readData(){
   bufferCount = 0;
   delay(commandDelay);
   return;
-}
-
-float getIntFromReturn(char code){
-  int value = atoi(&buffer[3]);
-  Serial.println(value);
-  
-
-  return -1;
 }
 
 float getCo2(){
